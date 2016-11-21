@@ -8,7 +8,7 @@
 #include <ngx_config.h>
 #include <ngx_core.h>
 
-
+//创建新的链表
 ngx_list_t *
 ngx_list_create(ngx_pool_t *pool, ngx_uint_t n, size_t size)
 {
@@ -26,7 +26,9 @@ ngx_list_create(ngx_pool_t *pool, ngx_uint_t n, size_t size)
     return list;
 }
 
-
+//添加新的元素
+//正常情况下， 返回的是新分配的元素首地址。 如果返回NULL空指针， 则表示添加失败。 
+//在使用它时通常先调用ngx_list_push得到返回的元素地址， 再对返回的地址进行赋值
 void *
 ngx_list_push(ngx_list_t *l)
 {

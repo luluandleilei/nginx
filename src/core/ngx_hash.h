@@ -88,12 +88,12 @@ typedef struct {
     ngx_array_t      *dns_wc_tail_hash;
 } ngx_hash_keys_arrays_t;
 
-
+//key/value对
 typedef struct {
     ngx_uint_t        hash;
     ngx_str_t         key;
     ngx_str_t         value;
-    u_char           *lowcase_key;
+    u_char           *lowcase_key;	//全小写的key字符串
 } ngx_table_elt_t;
 
 
