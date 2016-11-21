@@ -75,12 +75,12 @@
 
 
 struct ngx_command_s {
-    ngx_str_t             name;
-    ngx_uint_t            type;
-    char               *(*set)(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
-    ngx_uint_t            conf;
-    ngx_uint_t            offset;
-    void                 *post;
+    ngx_str_t             name;		//配置指令的名称
+    ngx_uint_t            type;		//配置指令类型，指定配置指令可以出现的位置(例如出现在server{}或location{}中)以及它可以携带的参数个数
+    char               *(*set)(ngx_conf_t *cf, ngx_command_t *cmd, void *conf); //配置指令处理回调函数
+    ngx_uint_t            conf;		//存放的值在上下文中的偏移量
+    ngx_uint_t            offset;	//存放的值在结构体中的偏移量
+    void                 *post;		//配置指令读取后的处理方法，必须是ngx_conf_post_t结构体的指针
 };
 
 #define ngx_null_command  { ngx_null_string, 0, NULL, 0, 0, NULL }
