@@ -100,24 +100,39 @@ typedef struct {
 } ngx_http_listen_opt_t;
 
 
+//ngx_http_phases定义的11个阶段是有顺序的，必须按照其定义的顺序执行。
+//NGX_HTTP_FIND_CONFIG_PHASE，NGX_HTTP_POST_REWRITE_PHASE，NGX_HTTP_POST_ACCESS_PHASE和NGX_HTTP_TRY_FILES_PHASE
+//这4个阶段则不允许HTTP模块加入自己的ngx_http_handler_pt方法处理用户请求，它们由HTTP框架实现。
 typedef enum {
-    NGX_HTTP_POST_READ_PHASE = 0,
+    NGX_HTTP_POST_READ_PHASE = 0,	//接收完请求头之后的第一个阶段，它位于uri重写之前，实际上很少有模块会注册在该阶段，默认的情况下，该阶段被跳过
+									//接收到完整的HTTP头部后处理的HTTP阶段
 
-    NGX_HTTP_SERVER_REWRITE_PHASE,
+    NGX_HTTP_SERVER_REWRITE_PHASE,	//server级别的uri重写阶段，也就是该阶段执行处于server块内，location块外的重写指令，(在读取请求头的过程中nginx会根据host及端口找到对应的虚拟主机配置)								
+	                                //这个阶段主要是处理全局的(server block)的rewrite。
+	                                //在还没有查询URI匹配的location前，这时rewrite重写URL也作为一个独立的HTTP阶段
+    NGX_HTTP_FIND_CONFIG_PHASE,		// 寻找location配置阶段，该阶段使用重写之后的uri来查找对应的location，值得注意的是该阶段可能会被执行多次，因为也可能有location级别的重写指令
+    								//这个阶段主要是通过uri来查找对应的location。然后将uri和location的数据关联起来  
+    								//根据URI寻找匹配的location，这个阶段通常由ngx_http_core_module模块实现
+    NGX_HTTP_REWRITE_PHASE,			//location级别的uri重写阶段，该阶段执行location基本的重写指令，也可能会被执行多次；
+    NGX_HTTP_POST_REWRITE_PHASE,	//location级别重写的后一阶段，用来检查上阶段是否有uri重写，并根据结果跳转到合适的阶段；这个主要是进行一些校验以及收尾工作，以便于交给后面的模块。
+    								//这一阶段是用于在rewrite重写URL后重新跳到NGX_HTTP_FIND_CONFIG_PHASE阶段，找到与新的URI匹配的location。这个阶段通常由ngx_http_core_module模块实现
 
-    NGX_HTTP_FIND_CONFIG_PHASE,
-    NGX_HTTP_REWRITE_PHASE,
-    NGX_HTTP_POST_REWRITE_PHASE,
+    NGX_HTTP_PREACCESS_PHASE,		// 访问权限控制的前一阶段，该阶段在权限控制阶段之前，一般也用于访问控制，比如限制访问频率，链接数等；
+									//比如流控这种类型的access就放在这个phase，也就是说它主要是进行一些比较粗粒度的access。 
+									//处理NGX_HTTP_ACCESS_PHASE阶段前，HTTP模块可以介入的处理阶段
+    NGX_HTTP_ACCESS_PHASE,			//访问权限控制阶段，比如基于ip黑白名单的权限控制，基于用户名密码的权限控制等；
+    								//这个比如存取控制，权限验证就放在这个phase，一般来说处理动作是交给下面的模块做的.这个主要是做一些细粒度的access。 
+    								//这个阶段用于让HTTP模块判断是否允许这个请求访问Nginx服务器
+    NGX_HTTP_POST_ACCESS_PHASE,		//访问权限控制的后一阶段，该阶段根据权限控制阶段的执行结果进行相应处理；
+									//一般来说当上面的access模块得到access_code之后就会由这个模块根据access_code来进行操作  
+									//用于给NGX_HTTP_ACCESS_PHASE阶段收尾，例如当NGX_HTTP_ACCESS_PHASE阶段处理方法返回不允许访问的错误码时(实际上是NGX_HTTP_FORBIDDEN或者NGX_HTTP_UNAUTHORIZED)，
+									//这个阶段将负责构造拒接服务的用户响应
+    NGX_HTTP_TRY_FILES_PHASE,		//try_files指令的处理阶段，如果没有配置try_files指令，则该阶段被跳过
+    								//这个阶段完全是为了try_files配置项而设立的。当HTTP请求访问静态文件资源时，try_files配置项可以使这个请求顺序的访问多个静态文件资源，如果某一此访问失败，
+    								//则继续访问try_files中指定的下一个静态资源。另外，这个功能完全是在NGX_HTTP_TRY_FILES_PHASE阶段中实现的
+    NGX_HTTP_CONTENT_PHASE,			//内容生成阶段，该阶段产生响应，并发送到客户端；//内容处理模块，我们一般的handle都是处于这个模块  
 
-    NGX_HTTP_PREACCESS_PHASE,
-
-    NGX_HTTP_ACCESS_PHASE,
-    NGX_HTTP_POST_ACCESS_PHASE,
-
-    NGX_HTTP_TRY_FILES_PHASE,
-    NGX_HTTP_CONTENT_PHASE,
-
-    NGX_HTTP_LOG_PHASE
+    NGX_HTTP_LOG_PHASE				//日志记录阶段，该阶段记录访问日志；//处理完请求后记录日志的阶段
 } ngx_http_phases;
 
 typedef struct ngx_http_phase_handler_s  ngx_http_phase_handler_t;

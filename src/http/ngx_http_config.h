@@ -32,7 +32,7 @@ typedef struct {
     ngx_int_t   (*postconfiguration)(ngx_conf_t *cf);	//在解析完http{...}内的所有配置项后回调
 
     void       *(*create_main_conf)(ngx_conf_t *cf);	//创建用于存储HTTP全局配置项的结构体，该结构体中的成员将保存直属于http{}块的配置参数。它会在解析main配置项前调用
-    char       *(*init_main_conf)(ngx_conf_t *cf, void *conf);	//常用语初始化main级别的配置项，解析完main配置项后回调
+    char       *(*init_main_conf)(ngx_conf_t *cf, void *conf);	//常用于初始化main级别的配置项，解析完main配置项后回调
 
     void       *(*create_srv_conf)(ngx_conf_t *cf);		//创建用于存储可同时出现在main、srv级别配置项的结构体，该结构体中的成员与server配置项是相关联的
     char       *(*merge_srv_conf)(ngx_conf_t *cf, void *prev, void *conf);	//create_srv_conf产生的结构体所要解析的配置项，可能同时出现在main、srv级别中，
