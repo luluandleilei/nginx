@@ -98,6 +98,9 @@ static ngx_core_module_t  ngx_events_module_ctx = {
 };
 
 
+//定义了一种新的模块类型--事件模块(定义每个事件模块都需要实现的ngx_event_module_t接口)
+//为所有的事件模块解析"events {}" 中的配置项，同时管理这些事件模块存储配置项的结构体
+//当然，在解析配置项时会调用其在ngx_command_t数组中定义的回调方法
 ngx_module_t  ngx_events_module = {
     NGX_MODULE_V1,
     &ngx_events_module_ctx,                /* module context */
@@ -174,6 +177,8 @@ ngx_event_module_t  ngx_event_core_module_ctx = {
 };
 
 
+//决定使用哪种事件驱动机制，以及如何管理事件
+//管理当前正在使用的事件驱动模式
 ngx_module_t  ngx_event_core_module = {
     NGX_MODULE_V1,
     &ngx_event_core_module_ctx,            /* module context */
@@ -260,6 +265,16 @@ ngx_process_events_and_timers(ngx_cycle_t *cycle)
 }
 
 
+/*
+将读事件添加到事件驱动模块中， 使用ngx_handle_read_event方法则可以屏蔽与具体的事件驱动机制间差异
+参数:
+    rev -- 要操作的事件
+    flags -- 指定事件驱动的方式，对于不同的事件驱动模块，flags的取值范围并不同。
+    		对于ngx_epoll_module来说， flags的取值范围可以是0或者NGX_CLOSE_EVENT（ NGX_CLOSE_EVENT仅
+    		在epoll的LT水平触发模式下有效） ， Nginx主要工作在ET模式下， 一般可以忽略flags这个参数。
+返回值:
+    NGX_OK表示成功，NGX_ERROR表示失败
+*/
 ngx_int_t
 ngx_handle_read_event(ngx_event_t *rev, ngx_uint_t flags)
 {
@@ -328,6 +343,15 @@ ngx_handle_read_event(ngx_event_t *rev, ngx_uint_t flags)
 }
 
 
+/*
+将写事件添加到事件驱动模块中，使用ngx_handle_write_event方法则可以屏蔽与具体的事件驱动机制间差异
+参数:
+    wev -- 要操作的事件
+    lowat -- 表示只有当连接对应的套接字缓冲区中必须有lowat大小的可用空间时，
+		事件收集器(如select或者epoll_wait调用)才能处理这个可写事件(lowat参数为0时表示不考虑可写缓冲区的大小)
+返回值:
+    NGX_OK表示成功， NGX_ERROR表示失败
+*/
 ngx_int_t
 ngx_handle_write_event(ngx_event_t *wev, size_t lowat)
 {
