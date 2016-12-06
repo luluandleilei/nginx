@@ -67,9 +67,9 @@ struct ngx_cycle_s {
     ngx_uint_t                connection_n;
     ngx_uint_t                files_n;
 
-    ngx_connection_t         *connections;
-    ngx_event_t              *read_events;
-    ngx_event_t              *write_events;
+    ngx_connection_t         *connections;  //指向整个连接池数组的首部。每个连接所需要的读/写事件都以相同的数组序号对应着read_events、write_events读/写事件数组，相同序号下这3个数组中的元素是配合使用的
+    ngx_event_t              *read_events;  //预分配的connection_n个读事件
+    ngx_event_t              *write_events; //预分配的connection_n个写事件
 
     ngx_cycle_t              *old_cycle;
 
