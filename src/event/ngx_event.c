@@ -93,7 +93,7 @@ static ngx_command_t  ngx_events_commands[] = {
 
 static ngx_core_module_t  ngx_events_module_ctx = {
     ngx_string("events"),
-    NULL,
+    NULL,   //ngx_events_module模块并不会解析配置项参数，只是在出现events配置项后会调用各事件模块去解析events{}块内的配置项，故不需要实现create_conf方法来创建存储配置项的结构体
     ngx_event_init_conf
 };
 
@@ -121,7 +121,14 @@ static ngx_str_t  event_core_name = ngx_string("event_core");
 
 
 static ngx_command_t  ngx_event_core_commands[] = {
-
+    	/*
+	语法:	worker_connections number;
+	默认值:	worker_connections 512;
+	上下文:	events
+	设置每个工作进程可以打开的最大并发连接数，也是连接池的大小
+	需要记住，这个数量包含所有连接(比如，和后端服务器建立的连接，还有其他的）， 而不仅仅是和客户端的连接。 
+	另外需要考虑的是，实际的并发连接数是不能超过打开文件的最大数量限制的，这个限制可以用worker_rlimit_nofile指令修改
+	*/
     { ngx_string("worker_connections"),
       NGX_EVENT_CONF|NGX_CONF_TAKE1,
       ngx_event_connections,
@@ -129,6 +136,13 @@ static ngx_command_t  ngx_event_core_commands[] = {
       0,
       NULL },
 
+    	/*
+	语法:	use [kqueue | rtsig | epoll | /dev/poll | select | poll | eventport];
+	默认值:	—
+	上下文:	events
+	//确定选择哪一个事件模块作为事件驱动机制
+	指定使用的连接处理method(方式)。 通常不需要明确设置，因为nginx默认会使用最高效的方法。
+	*/
     { ngx_string("use"),
       NGX_EVENT_CONF|NGX_CONF_TAKE1,
       ngx_event_use,
@@ -136,6 +150,15 @@ static ngx_command_t  ngx_event_core_commands[] = {
       0,
       NULL },
 
+    	/*
+	语法:	multi_accept on | off;
+	默认值:	multi_accept off;
+	上下文:	events
+	关闭时，工作进程一次只会接入一个新连接。否则，工作进程一次会将所有新连接全部接入。
+	使用kqueue连接处理方式时，可忽略这条指令，因为kqueue可以报告有多少新连接等待接入。
+	使用rtsig连接处理方式将自动开启multi_accept。
+	对应于ngx_event_t(事件定义)的available字段
+	*/
     { ngx_string("multi_accept"),
       NGX_EVENT_CONF|NGX_CONF_FLAG,
       ngx_conf_set_flag_slot,
