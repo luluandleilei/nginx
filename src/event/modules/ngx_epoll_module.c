@@ -131,8 +131,8 @@ static void *ngx_epoll_create_conf(ngx_cycle_t *cycle);
 static char *ngx_epoll_init_conf(ngx_cycle_t *cycle, void *conf);
 
 static int                  ep = -1;
-static struct epoll_event  *event_list;
-static ngx_uint_t           nevents;
+static struct epoll_event  *event_list; //存储每次调用epoll_wait返回的事件的数组
+static ngx_uint_t           nevents;    //event_list数组元素的个数
 
 #if (NGX_HAVE_EVENTFD)
 static int                  notify_fd = -1;
@@ -158,6 +158,7 @@ static ngx_str_t      epoll_name = ngx_string("epoll");
 
 static ngx_command_t  ngx_epoll_commands[] = {
 
+    //这个配置项表示调用一次epoll_wait最多可以返回的事件数
     { ngx_string("epoll_events"),
       NGX_EVENT_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_num_slot,
@@ -165,6 +166,7 @@ static ngx_command_t  ngx_epoll_commands[] = {
       offsetof(ngx_epoll_conf_t, events),
       NULL },
 
+    //指明在开启异步I/O且使用io_setup系统调用初始化异步I/O上下文环境时，初始分配的异步I/O事件个数  
     { ngx_string("worker_aio_requests"),
       NGX_EVENT_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_num_slot,
@@ -324,10 +326,12 @@ ngx_epoll_init(ngx_cycle_t *cycle, ngx_msec_t timer)
 {
     ngx_epoll_conf_t  *epcf;
 
+    //取得epoll模块的配置结构
     epcf = ngx_event_get_conf(cycle->conf_ctx, ngx_epoll_module);
 
+    //创建epoll
     if (ep == -1) {
-        ep = epoll_create(cycle->connection_n / 2);
+        ep = epoll_create(cycle->connection_n / 2); //调用epoll_create在内核中创建epoll对象
 
         if (ep == -1) {
             ngx_log_error(NGX_LOG_EMERG, cycle->log, ngx_errno,
@@ -342,7 +346,7 @@ ngx_epoll_init(ngx_cycle_t *cycle, ngx_msec_t timer)
 #endif
 
 #if (NGX_HAVE_FILE_AIO)
-        ngx_epoll_aio_init(cycle, epcf);
+        ngx_epoll_aio_init(cycle, epcf);    //异步I/O
 #endif
 
 #if (NGX_HAVE_EPOLLRDHUP)
@@ -350,6 +354,7 @@ ngx_epoll_init(ngx_cycle_t *cycle, ngx_msec_t timer)
 #endif
     }
 
+    //初始化event_list数组，用于存储每次调用epoll_wait返回的事件，数组的个数是配置项epoll_events的参数
     if (nevents < epcf->events) {
         if (event_list) {
             ngx_free(event_list);
@@ -364,12 +369,14 @@ ngx_epoll_init(ngx_cycle_t *cycle, ngx_msec_t timer)
 
     nevents = epcf->events;
 
+    //指定读写I/O的方法  
     ngx_io = ngx_os_io;
 
+    //设置ngx_event_actions接口
     ngx_event_actions = ngx_epoll_module_ctx.actions;
 
 #if (NGX_HAVE_CLEAR_EVENT)
-    ngx_event_flags = NGX_USE_CLEAR_EVENT
+    ngx_event_flags = NGX_USE_CLEAR_EVENT   //告诉nginx采用ET模式来使用epoll 
 #else
     ngx_event_flags = NGX_USE_LEVEL_EVENT
 #endif
@@ -584,6 +591,7 @@ ngx_epoll_add_event(ngx_event_t *ev, ngx_int_t event, ngx_uint_t flags)
     ngx_connection_t    *c;
     struct epoll_event   ee;
 
+    //每个事件的data成员都存放着其对应的ngx_connection_t连接
     c = ev->data;
 
     events = (uint32_t) event;

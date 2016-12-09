@@ -83,34 +83,40 @@ struct ngx_cycle_s {
 
 
 typedef struct {
-    ngx_flag_t                daemon;
-    ngx_flag_t                master;
+    ngx_flag_t                daemon;   //是否以守护进程的方式运行Nginx。守护进程是脱离终端并且在后台允许的进程
+    ngx_flag_t                master;   //是否以master/worker方式工作。
+                                        //如果关闭了master_process工作方式，就不会fork出worker子进程来处理请求，而是用master进程自身来处理请求
 
-    ngx_msec_t                timer_resolution;
+    ngx_msec_t                timer_resolution; //系统调用gettimeofday的执行频率
+                                                //默认情况下，每次内核的事件调用(如epoll)返回时，都会执行一次getimeofday，实现用内核时钟来更新Nginx中的缓存时钟，
+                                                //若设置timer_resolution则定期更新Nginx中的缓存时钟             
 
-    ngx_int_t                 worker_processes;
-    ngx_int_t                 debug_points;
+    ngx_int_t                 worker_processes; //工作进程的个数
+    ngx_int_t                 debug_points; //Nginx在一些关键的错误逻辑中设置了调试点。
+                                            //如果设置了debug_points为NGX_DEBUG_POINTS_STOP，那么Nginx执行到这些调试点时就会发出SIGSTOP信号以用于调试
+                                            //如果设置了debug_points为NGX_DEBUG_POINTS_ABORT，那么Nginx执行到这些调试点时就会产生一个coredump文件，可以使用gdb来查看Nginx当时的各种信息
 
-    ngx_int_t                 rlimit_nofile;
-    off_t                     rlimit_core;
+    ngx_int_t                 rlimit_nofile;    //每个工作进程的打开文件数的最大值限制(RLIMIT_NOFILE)
+    off_t                     rlimit_core;  //coredump核心转储文件的最大大小。在Linux系统中，当进程发生错误或收到信号而终止时，系统会将进程执行时的内存内容(核心映像)
+                                            //写入一个文件(core文件)，以作调试之用，这就是所谓的核心转储(core dump)
 
-    int                       priority;
+    int                       priority; //指定Nginx worker进程的nice优先级
 
     ngx_uint_t                cpu_affinity_auto;
-    ngx_uint_t                cpu_affinity_n;
-    ngx_cpuset_t             *cpu_affinity;
+    ngx_uint_t                cpu_affinity_n;   //cpu_affinity数组元素个数
+    ngx_cpuset_t             *cpu_affinity; //uint64_t类型的数组，每个元素表示一个工作进程的CPU亲和性掩码
 
-    char                     *username;
-    ngx_uid_t                 user;
-    ngx_gid_t                 group;
+    char                     *username; //用户名(work进程)
+    ngx_uid_t                 user;     //用户UID(work进程)
+    ngx_gid_t                 group;    //用户GID(work进程)
 
-    ngx_str_t                 working_directory;
-    ngx_str_t                 lock_file;
+    ngx_str_t                 working_directory;    //指定进程当前工作目录
+    ngx_str_t                 lock_file;    //lock文件的路径
 
-    ngx_str_t                 pid;
+    ngx_str_t                 pid;  //保存master进程ID的pid文件存放路径
     ngx_str_t                 oldpid;
 
-    ngx_array_t               env;
+    ngx_array_t               env;  //ngx_str_t类型的动态数组, 存储环境变量
     char                    **environment;
 } ngx_core_conf_t;
 

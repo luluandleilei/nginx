@@ -18,7 +18,7 @@ static ngx_uint_t ngx_module_ctx_index(ngx_cycle_t *cycle, ngx_uint_t type,
     ngx_uint_t index);
 
 
-ngx_uint_t         ngx_max_module;
+ngx_uint_t         ngx_max_module;  //nginx模块的总个数
 static ngx_uint_t  ngx_modules_n;
 
 
@@ -85,8 +85,8 @@ ngx_count_modules(ngx_cycle_t *cycle, ngx_uint_t type)
     ngx_uint_t     i, next, max;
     ngx_module_t  *module;
 
-    next = 0;
-    max = 0;
+    next = 0;   //下一个可以使用的索引
+    max = 0;    //索引的最大值
 
     /* count appropriate modules, set up their indices */
 

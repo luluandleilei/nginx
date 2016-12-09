@@ -35,13 +35,15 @@ static void *ngx_event_core_create_conf(ngx_cycle_t *cycle);
 static char *ngx_event_core_init_conf(ngx_cycle_t *cycle, void *conf);
 
 
-static ngx_uint_t     ngx_timer_resolution;
-sig_atomic_t          ngx_event_timer_alarm;
+static ngx_uint_t     ngx_timer_resolution; //ngx_core_module模块的timer_resolution命令指定的时间更新间隔
+sig_atomic_t          ngx_event_timer_alarm;    //全局变量，当它设为1时表示需要更新时间
+                                                //在ngx_event_action_t的process_events方法中，每一个事件驱动模块都需要在ngx_event_timer_alarm为1时
+                                                //调用ngx_time_update方法更新系统时间，在更新系统时间结束后需要将ngx_event_timer_alarm设为0
 
-static ngx_uint_t     ngx_event_max_module;
+static ngx_uint_t     ngx_event_max_module; //event类型模块的总个数
 
-ngx_uint_t            ngx_event_flags;
-ngx_event_actions_t   ngx_event_actions;
+ngx_uint_t            ngx_event_flags;  //由实际使用的io复用机制设置的标志
+ngx_event_actions_t   ngx_event_actions;    //nginx事件框架处理事件时封装的接口，实际使用的io复用机制的action方法
 
 
 static ngx_atomic_t   connection_counter = 1;
@@ -49,8 +51,8 @@ ngx_atomic_t         *ngx_connection_counter = &connection_counter;
 
 
 ngx_atomic_t         *ngx_accept_mutex_ptr;
-ngx_shmtx_t           ngx_accept_mutex;
-ngx_uint_t            ngx_use_accept_mutex;
+ngx_shmtx_t           ngx_accept_mutex;         //进程间的互斥锁
+ngx_uint_t            ngx_use_accept_mutex;     //是否使用accept_mutex负载均衡锁
 ngx_uint_t            ngx_accept_events;
 ngx_uint_t            ngx_accept_mutex_held;
 ngx_msec_t            ngx_accept_mutex_delay;
@@ -166,6 +168,14 @@ static ngx_command_t  ngx_event_core_commands[] = {
       offsetof(ngx_event_conf_t, multi_accept),
       NULL },
 
+    	/*
+	语法:	accept_mutex on | off;
+	默认值:	accept_mutex on;
+	上下文:	events
+	确定是否使用accept_mutex负载均衡锁
+	如果使用，nginx的多个工作进程将以串行方式接入新连接。否则，新连接将通报给所有工作进程，
+	而且如果新连接数量较少，某些工作进程可能只是在浪费系统资源。必须开启accept_mutex才能使用rtsig连接处理方式。
+	*/
     { ngx_string("accept_mutex"),
       NGX_EVENT_CONF|NGX_CONF_FLAG,
       ngx_conf_set_flag_slot,
@@ -173,6 +183,13 @@ static ngx_command_t  ngx_event_core_commands[] = {
       offsetof(ngx_event_conf_t, accept_mutex),
       NULL },
 
+    	/*
+	语法:	accept_mutex_delay time;
+	默认值:	accept_mutex_delay 500ms;
+	上下文:	events
+	使用accept_mutex时，可以指定某个工作进程检测到其它工作进程正在接入新连接时，自身等待直到重新开始尝试接入新连接的最大时间间隔。
+	//启用accept_mutex负载均衡锁后，worker进程在拿不到锁时至少延迟accept_mutex_delay毫秒再重新获取负载均衡锁
+	*/
     { ngx_string("accept_mutex_delay"),
       NGX_EVENT_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_msec_slot,
@@ -180,6 +197,12 @@ static ngx_command_t  ngx_event_core_commands[] = {
       offsetof(ngx_event_conf_t, accept_mutex_delay),
       NULL },
 
+    	//语法: debug_connection [IP|CIDR]
+	//仅对指定的客户端输出debug级别的日志，其他请求仍然沿用error_log配置的日志级别
+	//使用前，需要确保在执行configure时已经加入了--with-debug参数，否则不会生效
+	//例如: debug_connection 10.224.66.14;
+	//		debug_connection 10.224.57.0/24;
+	//	这样，仅仅来自以上IP地址的请求才会输出debug级别的日志
     { ngx_string("debug_connection"),
       NGX_EVENT_CONF|NGX_CONF_TAKE1,
       ngx_event_debug_connection,
@@ -200,8 +223,9 @@ ngx_event_module_t  ngx_event_core_module_ctx = {
 };
 
 
-//决定使用哪种事件驱动机制，以及如何管理事件
-//管理当前正在使用的事件驱动模式
+//决定使用哪种事件驱动机制，以及如何管理事件，管理当前正在使用的事件驱动模式
+//创建连接池(包括读/写事件)，决定使用那些事件驱动机制，初始化将要使用的事件模块
+//在所有的事件模块中是第一位的(configure执行时必须把它放在其它事件模块之前)，以保证它会先于其它事件模块执行，因此才能完成选择事件驱动的机制的任务
 ngx_module_t  ngx_event_core_module = {
     NGX_MODULE_V1,
     &ngx_event_core_module_ctx,            /* module context */
@@ -626,13 +650,15 @@ ngx_event_process_init(ngx_cycle_t *cycle)
     ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
     ecf = ngx_event_get_conf(cycle->conf_ctx, ngx_event_core_module);
 
+    //当打开accept_mutex负载均衡锁配置，同时使用了master模式并且worker进程数量大于1时，
+	//才正式确定了进程将使用accept_mutex负载均衡锁
     if (ccf->master && ccf->worker_processes > 1 && ecf->accept_mutex) {
         ngx_use_accept_mutex = 1;
         ngx_accept_mutex_held = 0;
         ngx_accept_mutex_delay = ecf->accept_mutex_delay;
 
     } else {
-        ngx_use_accept_mutex = 0;
+        ngx_use_accept_mutex = 0;   //关闭负载均衡锁
     }
 
 #if (NGX_WIN32)
@@ -649,10 +675,12 @@ ngx_event_process_init(ngx_cycle_t *cycle)
     ngx_queue_init(&ngx_posted_accept_events);
     ngx_queue_init(&ngx_posted_events);
 
+    //初始化红黑树实现的ngx_event_timer_rbtree定时器
     if (ngx_event_timer_init(cycle->log) == NGX_ERROR) {
         return NGX_ERROR;
     }
 
+    //调用use配置项指定的事件驱动模块的init方法
     for (m = 0; cycle->modules[m]; m++) {
         if (cycle->modules[m]->type != NGX_EVENT_MODULE) {
             continue;
@@ -674,6 +702,8 @@ ngx_event_process_init(ngx_cycle_t *cycle)
 
 #if !(NGX_WIN32)
 
+    //如果nginx.conf配置文件中使用了timer_resolution配置项设置时间精度，即表明需要控制时间精度，
+    //这时会调用setitimer方法，设置时间间隔为timer_resolution毫秒来回调ngx_timer_signal_handler方法
     if (ngx_timer_resolution && !(ngx_event_flags & NGX_USE_TIMER_EVENT)) {
         struct sigaction  sa;
         struct itimerval  itv;
@@ -699,6 +729,7 @@ ngx_event_process_init(ngx_cycle_t *cycle)
         }
     }
 
+    //若使用poll事件驱动机制，则为ngx_cycle_t结构体中的files成员预分配运行时使用的连接句柄
     if (ngx_event_flags & NGX_USE_FD_EVENT) {
         struct rlimit  rlmt;
 
@@ -728,6 +759,7 @@ ngx_event_process_init(ngx_cycle_t *cycle)
 
 #endif
 
+    //预分配ngx_connection_t数组作为连接池， 同时将ngx_cycle_t结构体中的connections成员指向该数组。 
     cycle->connections =
         ngx_alloc(sizeof(ngx_connection_t) * cycle->connection_n, cycle->log);
     if (cycle->connections == NULL) {
@@ -736,6 +768,7 @@ ngx_event_process_init(ngx_cycle_t *cycle)
 
     c = cycle->connections;
 
+    //预分配ngx_event_t事件数组作为读事件池，同时将ngx_cycle_t结构体中的read_events成员指向该数组。
     cycle->read_events = ngx_alloc(sizeof(ngx_event_t) * cycle->connection_n,
                                    cycle->log);
     if (cycle->read_events == NULL) {
@@ -748,6 +781,7 @@ ngx_event_process_init(ngx_cycle_t *cycle)
         rev[i].instance = 1;
     }
 
+    //预分配ngx_event_t事件数组作为写事件池，同时将ngx_cycle_t结构体中的write_events成员指向该数组。
     cycle->write_events = ngx_alloc(sizeof(ngx_event_t) * cycle->connection_n,
                                     cycle->log);
     if (cycle->write_events == NULL) {
@@ -759,6 +793,8 @@ ngx_event_process_init(ngx_cycle_t *cycle)
         wev[i].closed = 1;
     }
 
+    //按照序号，将上述3个数组相应的读/写事件设置到每一个ngx_connection_t连接对象中，同时把这些连接
+	//以ngx_connection_t中的data成员作为next指针串联成链表， 设置为空闲连接链表
     i = cycle->connection_n;
     next = NULL;
 
@@ -778,6 +814,8 @@ ngx_event_process_init(ngx_cycle_t *cycle)
 
     /* for each listening socket */
 
+    //在刚刚建立好的连接池中，为所有监听对象中的connection成员分配连接，
+	//同时对监听端口的读事件设置处理方法为ngx_event_accept，也就是说，有新连接事件时将调用ngx_event_accept方法建立新连接
     ls = cycle->listening.elts;
     for (i = 0; i < cycle->listening.nelts; i++) {
 
@@ -881,6 +919,9 @@ ngx_event_process_init(ngx_cycle_t *cycle)
 
 #endif
 
+        //如果没有启动accept_mutex，就将监听套接字所对应的读事件对象加入到事件驱动模块中，
+		//否则就需要在核心执行函数ngx_process_events_and_timers()内进行竞争，只有抢占到accept_mutex锁，
+		//进程才会把它加入到事件驱动模块中
         if (ngx_use_accept_mutex) {
             continue;
         }
@@ -913,6 +954,7 @@ ngx_event_process_init(ngx_cycle_t *cycle)
 }
 
 
+///设置发送低水位标志
 ngx_int_t
 ngx_send_lowat(ngx_connection_t *c, size_t lowat)
 {
@@ -965,19 +1007,22 @@ ngx_events_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     ngx_event_max_module = ngx_count_modules(cf->cycle, NGX_EVENT_MODULE);
 
+    //分配指向对应上下文空间的索引空间 void***--->void **--->array of void*    
     ctx = ngx_pcalloc(cf->pool, sizeof(void *));
     if (ctx == NULL) {
         return NGX_CONF_ERROR;
     }
 
-    *ctx = ngx_pcalloc(cf->pool, ngx_event_max_module * sizeof(void *));
+    //分配指针数组，存储所有事件模块生成的配置项结构体指针
+    *ctx = ngx_pcalloc(cf->pool, ngx_event_max_module * sizeof(void *));    
     if (*ctx == NULL) {
         return NGX_CONF_ERROR;
     }
 
     *(void **) conf = ctx;
 
-    for (i = 0; cf->cycle->modules[i]; i++) {
+    //调用所有事件模块的create_conf方法，分配对应事件模块配置的空间
+    for (i = 0; cf->cycle->modules[i]; i++) {   
         if (cf->cycle->modules[i]->type != NGX_EVENT_MODULE) {
             continue;
         }
@@ -993,6 +1038,7 @@ ngx_events_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         }
     }
 
+    //分析events{}配置中的指令,设置对应事件模块的配置*/
     pcf = *cf;
     cf->ctx = ctx;
     cf->module_type = NGX_EVENT_MODULE;
@@ -1006,6 +1052,7 @@ ngx_events_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         return rv;
     }
 
+    //调用所有事件模块的init_conf方法--将该模块的为初始化配置设为默认值
     for (i = 0; cf->cycle->modules[i]; i++) {
         if (cf->cycle->modules[i]->type != NGX_EVENT_MODULE) {
             continue;

@@ -262,10 +262,11 @@ struct ngx_module_s {
 };
 
 
+//核心模块的公共接口
 typedef struct {
     ngx_str_t             name;
-    void               *(*create_conf)(ngx_cycle_t *cycle);
-    char               *(*init_conf)(ngx_cycle_t *cycle, void *conf);
+    void               *(*create_conf)(ngx_cycle_t *cycle); //创建该模块的配置对象的方法
+    char               *(*init_conf)(ngx_cycle_t *cycle, void *conf);   //为没有设置的配置设定默认值
 } ngx_core_module_t;
 
 

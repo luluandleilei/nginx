@@ -174,10 +174,10 @@ ngx_module_t  ngx_core_module = {
 static ngx_uint_t   ngx_show_help;
 static ngx_uint_t   ngx_show_version;
 static ngx_uint_t   ngx_show_configure;
-static u_char      *ngx_prefix;
-static u_char      *ngx_conf_file;
-static u_char      *ngx_conf_params;
-static char        *ngx_signal;
+static u_char      *ngx_prefix;         //-p 启动参数设置,应用程序、配置文件等的路径前缀
+static u_char      *ngx_conf_file;      //-c 启动参数设置,配置文件nginx.conf的路径
+static u_char      *ngx_conf_params;    //-g 启动参数设置,配置文件nginx.conf的全局指令 
+static char        *ngx_signal;         //-s 启动参数设置，发送的信号
 
 
 static char **ngx_os_environ;

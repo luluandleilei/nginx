@@ -449,15 +449,17 @@ extern ngx_os_io_t  ngx_io;
 
 
 typedef struct {
-    ngx_uint_t    connections;
-    ngx_uint_t    use;
+    ngx_uint_t    connections;  //每个worker进程可以同时处理的最大连接数，也是连接池的大小
+    ngx_uint_t    use;  //选用的事件模块在所有事件模块中的序号(ctx_index)
 
-    ngx_flag_t    multi_accept;
-    ngx_flag_t    accept_mutex;
+    ngx_flag_t    multi_accept; //标志位，为1时表示当事件模型通知有新连接时，尽可能地对本次调度中客户端发起的所有TCP请求都建立连接(accept)
+    ngx_flag_t    accept_mutex; //标志位，为1时表示启用负载均衡锁。这把锁可以让多个worker进程轮流地、序列化的与新的客户端建立TCP连接。
+                                //当某个worker进程建立的连接数量达到worker_connections指定的最大连接数的7/8时，会大大地减少该worker进程试
+                                //图建立新TCP连接的机会，以实现所有worker进程之上处理的客户端请求数尽量接近
 
     ngx_msec_t    accept_mutex_delay;	//负载均衡锁会使有些worker进程在拿不到锁时至少延迟accept_mutex_delay毫秒再重新获取负载均衡锁
 
-    u_char       *name;     //所选用的事件模块的名字，它与use成员是匹配的
+    u_char       *name; //所选用的事件模块的名字，它与use成员是匹配的
 
 #if (NGX_DEBUG)
     ngx_array_t   debug_connection; //ngx_cidr_t类型的数组 
@@ -512,6 +514,9 @@ extern ngx_module_t           ngx_events_module;
 extern ngx_module_t           ngx_event_core_module;
 
 
+//获取某个事件模块的配置结构体
+//conf_ctx -- ngx_cycle_t中的conf_ctx成员
+//module -- 所需要获取的事件模块
 #define ngx_event_get_conf(conf_ctx, module)                                  \
              (*(ngx_get_conf(conf_ctx, ngx_events_module))) [module.ctx_index];
 
