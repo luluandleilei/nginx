@@ -505,7 +505,7 @@ extern ngx_atomic_t  *ngx_stat_waiting;
 
 
 #define NGX_UPDATE_TIME         1
-#define NGX_POST_EVENTS         2
+#define NGX_POST_EVENTS         2	//表示事件需要延后处理
 
 
 extern sig_atomic_t           ngx_event_timer_alarm;

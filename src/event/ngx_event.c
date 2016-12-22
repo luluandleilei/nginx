@@ -52,7 +52,7 @@ ngx_atomic_t         *ngx_connection_counter = &connection_counter;
 
 ngx_atomic_t         *ngx_accept_mutex_ptr;
 ngx_shmtx_t           ngx_accept_mutex;         //进程间的互斥锁
-ngx_uint_t            ngx_use_accept_mutex;     //是否使用accept_mutex负载均衡锁
+ngx_uint_t            ngx_use_accept_mutex;     //表示是否使用accept_mutex负载均衡锁
 ngx_uint_t            ngx_accept_events;
 ngx_uint_t            ngx_accept_mutex_held;
 ngx_msec_t            ngx_accept_mutex_delay;

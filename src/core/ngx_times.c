@@ -20,15 +20,15 @@
 
 #define NGX_TIME_SLOTS   64
 
-static ngx_uint_t        slot;
+static ngx_uint_t        slot;	//指定cached_time数组当前有效项的索引
 static ngx_atomic_t      ngx_time_lock;
 
-volatile ngx_msec_t      ngx_current_msec;
-volatile ngx_time_t     *ngx_cached_time;
-volatile ngx_str_t       ngx_cached_err_log_time;
-volatile ngx_str_t       ngx_cached_http_time;
-volatile ngx_str_t       ngx_cached_http_log_time;
-volatile ngx_str_t       ngx_cached_http_log_iso8601;
+volatile ngx_msec_t      ngx_current_msec;	//格林威治时间1970年1月1日凌晨0点0分0秒到当前时间的毫秒数
+volatile ngx_time_t     *ngx_cached_time;	//ngx_time_t结构体形式的当前时间, 始终指向cached_time数组中slot指定的那一项
+volatile ngx_str_t       ngx_cached_err_log_time;	//用于记录error_log的当前时间字符串， 它的格式类似于："1970/09/28 12:00:00"
+volatile ngx_str_t       ngx_cached_http_time;	//用于HTTP相关的当前时间字符串， 它的格式类似于："Mon, 28 Sep 1970 06:00:00 GMT"
+volatile ngx_str_t       ngx_cached_http_log_time;	//用于记录HTTP日志的当前时间字符串， 它的格式类似于："28/Sep/1970:12:00:00 +0600"
+volatile ngx_str_t       ngx_cached_http_log_iso8601;	//以ISO 8601标准格式记录下的字符串形式的当前时间
 volatile ngx_str_t       ngx_cached_syslog_time;
 
 #if !(NGX_WIN32)
@@ -97,12 +97,15 @@ ngx_time_update(void)
 
     tp = &cached_time[slot];
 
+	//如果系统缓存的时间秒和当前更新的秒值未发生变化，则只需更新毫秒值，然后返回，
+	//否则认为系统长时间未更新时间，继续往后执行 
     if (tp->sec == sec) {
         tp->msec = msec;
         ngx_unlock(&ngx_time_lock);
         return;
     }
 
+	//循环获取下一个slot
     if (slot == NGX_TIME_SLOTS - 1) {
         slot = 0;
     } else {
@@ -123,7 +126,7 @@ ngx_time_update(void)
                        week[gmt.ngx_tm_wday], gmt.ngx_tm_mday,
                        months[gmt.ngx_tm_mon - 1], gmt.ngx_tm_year,
                        gmt.ngx_tm_hour, gmt.ngx_tm_min, gmt.ngx_tm_sec);
-
+//计算时区
 #if (NGX_HAVE_GETTIMEZONE)
 
     tp->gmtoff = ngx_gettimezone();
@@ -131,7 +134,7 @@ ngx_time_update(void)
 
 #elif (NGX_HAVE_GMTOFF)
 
-    ngx_localtime(sec, &tm);
+    ngx_localtime(sec, &tm);	//直接计算本地系统时间
     cached_gmtoff = (ngx_int_t) (tm.ngx_tm_gmtoff / 60);
     tp->gmtoff = cached_gmtoff;
 
@@ -251,6 +254,12 @@ ngx_time_sigsafe_update(void)
 #endif
 
 
+/*
+将时间t转换成"Mon, 28 Sep 1970 06:00:00 GMT"形式的时间
+t -- 需要转换的时间，它是格林威治1970年1月1日凌晨0点0分0秒到某一时间的秒数
+buf -- 是t时间转换成字符串形式的HTTP时间后用来存放字符串的内存
+返回值与buf是相同的，都是指向存放时间的字符串
+*/
 u_char *
 ngx_http_time(u_char *buf, time_t t)
 {
@@ -269,6 +278,12 @@ ngx_http_time(u_char *buf, time_t t)
 }
 
 
+/*
+将时间t转换成"Mon, 28-Sep-70 06:00:00 GMT"形式的适用于cookie的时间
+t -- 需要转换的时间，它是格林威治1970年1月1日凌晨0点0分0秒到某一时间的秒数
+buf -- 是t时间转换成字符串形式的适用于cookie的时间后用来存放字符串的内存
+返回值与buf是相同的，都是指向存放时间的字符串
+*/
 u_char *
 ngx_http_cookie_time(u_char *buf, time_t t)
 {
@@ -296,6 +311,11 @@ ngx_http_cookie_time(u_char *buf, time_t t)
 }
 
 
+/*
+将时间t转换成ngx_tm_t类型的时间
+t -- 需要转换的时间，它是格林威治1970年1月1日凌晨0点0分0秒到某一时间的秒数
+tp -- 是存储转为成ngx_tm_t类型(实际上就是标准的tm类型时间)的时间的空间
+*/
 void
 ngx_gmtime(time_t t, ngx_tm_t *tp)
 {

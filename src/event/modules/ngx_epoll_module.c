@@ -14,26 +14,26 @@
 
 /* epoll declarations */
 
-#define EPOLLIN        0x001
-#define EPOLLPRI       0x002
-#define EPOLLOUT       0x004
-#define EPOLLERR       0x008
-#define EPOLLHUP       0x010
-#define EPOLLRDNORM    0x040
+#define EPOLLIN        0x001    //表示对应的连接上有数据可以读出(TCP连接的远端主动关闭连接，也相当于可读事件，因为需要处理发送来的FIN包)
+#define EPOLLPRI       0x002    //表示对应的连接上有紧急数据需要读
+#define EPOLLOUT       0x004    //表示对应的连接上可以写入数据发送(主动向上游服务器发起非阻塞的TCP连接，连接建立成功的事件相当于可写事件)
+#define EPOLLERR       0x008    //表示对应的连接发生错误
+#define EPOLLHUP       0x010    //表示对应的连接被挂起
+#define EPOLLRDNORM    0x040    
 #define EPOLLRDBAND    0x080
 #define EPOLLWRNORM    0x100
 #define EPOLLWRBAND    0x200
 #define EPOLLMSG       0x400
 
-#define EPOLLRDHUP     0x2000
+#define EPOLLRDHUP     0x2000   //表示TCP连接的远端关闭或半关闭连接
 
 #define EPOLLEXCLUSIVE 0x10000000
-#define EPOLLONESHOT   0x40000000
-#define EPOLLET        0x80000000
+#define EPOLLONESHOT   0x40000000   //表示对这个事件只处理一次，下次需要处理时需要重新加入epoll
+#define EPOLLET        0x80000000   //表示将触发方式设置为边缘触发(ET)，系统默认为水平触发(LT)
 
-#define EPOLL_CTL_ADD  1
-#define EPOLL_CTL_DEL  2
-#define EPOLL_CTL_MOD  3
+#define EPOLL_CTL_ADD  1	//添加新的事件到epoll中
+#define EPOLL_CTL_DEL  2	//删除epoll中的事件
+#define EPOLL_CTL_MOD  3	//修改epoll中的事件
 
 typedef union epoll_data {
     void         *ptr;
@@ -130,7 +130,7 @@ static void ngx_epoll_eventfd_handler(ngx_event_t *ev);
 static void *ngx_epoll_create_conf(ngx_cycle_t *cycle);
 static char *ngx_epoll_init_conf(ngx_cycle_t *cycle, void *conf);
 
-static int                  ep = -1;
+static int                  ep = -1;    //epoll对象的描述符
 static struct epoll_event  *event_list; //存储每次调用epoll_wait返回的事件的数组
 static ngx_uint_t           nevents;    //event_list数组元素的个数
 
@@ -329,7 +329,7 @@ ngx_epoll_init(ngx_cycle_t *cycle, ngx_msec_t timer)
     //取得epoll模块的配置结构
     epcf = ngx_event_get_conf(cycle->conf_ctx, ngx_epoll_module);
 
-    //创建epoll
+    //调用epoll_create创建epoll对象
     if (ep == -1) {
         ep = epoll_create(cycle->connection_n / 2); //调用epoll_create在内核中创建epoll对象
 
@@ -354,7 +354,7 @@ ngx_epoll_init(ngx_cycle_t *cycle, ngx_msec_t timer)
 #endif
     }
 
-    //初始化event_list数组，用于存储每次调用epoll_wait返回的事件，数组的个数是配置项epoll_events的参数
+    //创建event_list数组，用于存储每次调用epoll_wait返回的事件，数组的个数是配置项epoll_events的参数
     if (nevents < epcf->events) {
         if (event_list) {
             ngx_free(event_list);
@@ -536,6 +536,7 @@ failed:
 static void
 ngx_epoll_done(ngx_cycle_t *cycle)
 {
+	//关闭epoll描述符ep
     if (close(ep) == -1) {
         ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
                       "epoll close() failed");
@@ -575,6 +576,7 @@ ngx_epoll_done(ngx_cycle_t *cycle)
 
 #endif
 
+	//释放event_list数组
     ngx_free(event_list);
 
     event_list = NULL;
@@ -591,8 +593,7 @@ ngx_epoll_add_event(ngx_event_t *ev, ngx_int_t event, ngx_uint_t flags)
     ngx_connection_t    *c;
     struct epoll_event   ee;
 
-    //每个事件的data成员都存放着其对应的ngx_connection_t连接
-    c = ev->data;
+    c = ev->data;	//每个事件的data成员都存放着其对应的ngx_connection_t连接
 
     events = (uint32_t) event;
 
@@ -626,7 +627,7 @@ ngx_epoll_add_event(ngx_event_t *ev, ngx_int_t event, ngx_uint_t flags)
 #endif
 
     ee.events = events | (uint32_t) flags;
-    ee.data.ptr = (void *) ((uintptr_t) c | ev->instance);
+    ee.data.ptr = (void *) ((uintptr_t) c | ev->instance);		//指针的最后一位一定是0(内存对齐?)
 
     ngx_log_debug3(NGX_LOG_DEBUG_EVENT, ev->log, 0,
                    "epoll add event: fd:%d op:%d ev:%08XD",
@@ -844,12 +845,15 @@ ngx_epoll_process_events(ngx_cycle_t *cycle, ngx_msec_t timer, ngx_uint_t flags)
     for (i = 0; i < events; i++) {
         c = event_list[i].data.ptr;
 
-        instance = (uintptr_t) c & 1;
-        c = (ngx_connection_t *) ((uintptr_t) c & (uintptr_t) ~1);
+		//在使用ngx_epoll_add_event方法向epoll中添加事件时，将epoll_event中联合成员data的ptr成员
+		//指向ngx_connection_t连接的地址，同时把最后一位置为这个事件的instance标志。
+        instance = (uintptr_t) c & 1;	//获取instance标志位
+        c = (ngx_connection_t *) ((uintptr_t) c & (uintptr_t) ~1);	//获取ngx_connection_t连接的地址
 
-        rev = c->read;
+        rev = c->read;	//取出读事件
 
-        if (c->fd == -1 || rev->instance != instance) {
+		//判断这个读事件是否为过期事件， 当fd套接字描述符为-1或者instance标志位不相等时，表示这个事件已经过期了，不用处理
+        if (c->fd == -1 || rev->instance != instance) {	
 
             /*
              * the stale event from a file descriptor
@@ -861,7 +865,7 @@ ngx_epoll_process_events(ngx_cycle_t *cycle, ngx_msec_t timer, ngx_uint_t flags)
             continue;
         }
 
-        revents = event_list[i].events;
+        revents = event_list[i].events;	//取出事件类型
 
         ngx_log_debug3(NGX_LOG_DEBUG_EVENT, cycle->log, 0,
                        "epoll: fd:%d ev:%04XD d:%p",
@@ -900,22 +904,22 @@ ngx_epoll_process_events(ngx_cycle_t *cycle, ngx_msec_t timer, ngx_uint_t flags)
 
             rev->ready = 1;
 
-            if (flags & NGX_POST_EVENTS) {
-                queue = rev->accept ? &ngx_posted_accept_events
+            if (flags & NGX_POST_EVENTS) {	//判断是否需要延后处理该事件
+                queue = rev->accept ? &ngx_posted_accept_events	//判断它是新连接事件还是普通事件， 以决定把它加入到ngx_posted_accept_events队列或者ngx_posted_events队列中
                                     : &ngx_posted_events;
 
-                ngx_post_event(rev, queue);
+                ngx_post_event(rev, queue);	//将这个事件添加到post队列中延后处理
 
             } else {
-                rev->handler(rev);
+                rev->handler(rev);	//立即调用读事件的回调方法来处理这个事件
             }
         }
 
-        wev = c->write;
+        wev = c->write;	//取出写事件
 
         if ((revents & EPOLLOUT) && wev->active) {
 
-            if (c->fd == -1 || wev->instance != instance) {
+            if (c->fd == -1 || wev->instance != instance) {	//判断这个读事件是否为过期事件
 
                 /*
                  * the stale event from a file descriptor
@@ -932,11 +936,11 @@ ngx_epoll_process_events(ngx_cycle_t *cycle, ngx_msec_t timer, ngx_uint_t flags)
             wev->complete = 1;
 #endif
 
-            if (flags & NGX_POST_EVENTS) {
-                ngx_post_event(wev, &ngx_posted_events);
+            if (flags & NGX_POST_EVENTS) {	
+                ngx_post_event(wev, &ngx_posted_events);	//将这个事件添加到post队列中延后处理
 
             } else {
-                wev->handler(wev);
+                wev->handler(wev);	//立即调用这个写事件的回调方法来处理这个事件
             }
         }
     }

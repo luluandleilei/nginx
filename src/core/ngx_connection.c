@@ -1079,14 +1079,13 @@ ngx_get_connection(ngx_socket_t s, ngx_log_t *log)
     c->fd = s;
     c->log = log;
 
-    instance = rev->instance;
+    instance = rev->instance;	//暂存旧的instance标志位
 
     ngx_memzero(rev, sizeof(ngx_event_t));
     ngx_memzero(wev, sizeof(ngx_event_t));
 
-    rev->instance = !instance;
-    wev->instance = !instance;
-
+    rev->instance = !instance;	//将新的instance标志位置为旧的instance标志位的相反值，以表明这是不同于上一个的新的实例
+    wev->instance = !instance;	//将新的instance标志位置为旧的instance标志位的相反值，以表明这是不同于上一个的新的实例
     rev->index = NGX_INVALID_INDEX;
     wev->index = NGX_INVALID_INDEX;
 
