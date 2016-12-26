@@ -10,8 +10,8 @@
 #include <ngx_event.h>
 
 
-ngx_queue_t  ngx_posted_accept_events;
-ngx_queue_t  ngx_posted_events;
+ngx_queue_t  ngx_posted_accept_events;  //被触发的监听连接的读事件构成的对列
+ngx_queue_t  ngx_posted_events; //普通读/写事件构成的队列
 
 
 void

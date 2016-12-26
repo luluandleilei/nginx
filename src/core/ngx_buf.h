@@ -24,7 +24,7 @@ struct ngx_buf_s {
     off_t            file_last;		//处理文件时，file_last的含义与处理内存时的last相同，表示将要处理的文件的结束位置
 
     u_char          *start;         //如果ngx_buf_t缓冲区用于内存，那么start指向这段内存的起始地址
-    u_char          *end;           //如果ngx_buf_t缓冲区用于内存，那么end指向这段内存的结束地址
+    u_char          *end;           //如果ngx_buf_t缓冲区用于内存，那么end指向这段内存的结束地址的下一个位置
     ngx_buf_tag_t    tag;			//表示当前缓冲区的类型，例如由哪个模块使用就指向这个模块ngx_module_t变量的地址
     ngx_file_t      *file;			//引用的文件
     ngx_buf_t       *shadow;		//当前缓冲区的影子缓冲区，该成员很少用到，仅在使用缓冲区转发上游服务器的响应数据时才使用了shadow成员，
@@ -80,16 +80,16 @@ typedef void (*ngx_output_chain_aio_pt)(ngx_output_chain_ctx_t *ctx,
     ngx_file_t *file);
 
 struct ngx_output_chain_ctx_s {
-    ngx_buf_t                   *buf;
-    ngx_chain_t                 *in;
-    ngx_chain_t                 *free;
-    ngx_chain_t                 *busy;
+    ngx_buf_t                   *buf;   //保存临时的buf
+    ngx_chain_t                 *in;    //保存了将要发送的chain
+    ngx_chain_t                 *free;  //保存了已经发送完毕的chain，以便于重复利用
+    ngx_chain_t                 *busy;  //保存了还未发送的chain
 
-    unsigned                     sendfile:1;
-    unsigned                     directio:1;
+    unsigned                     sendfile:1;    //sendfile标记
+    unsigned                     directio:1;    //directio标记
     unsigned                     unaligned:1;
-    unsigned                     need_in_memory:1;
-    unsigned                     need_in_temp:1;
+    unsigned                     need_in_memory:1;  //是否需要在内存中保存一份(使用sendfile的话，内存中没有文件的拷贝的，而我们有时需要处理文件，此时就需要设置这个标记) 
+    unsigned                     need_in_temp:1;    //是否需要在内存中重新复制一份，不管buf是在内存还是文件，这样的话，后续模块可以直接修改这块内存
     unsigned                     aio:1;
 
 #if (NGX_HAVE_FILE_AIO || NGX_COMPAT)
@@ -108,12 +108,12 @@ struct ngx_output_chain_ctx_s {
     off_t                        alignment;
 
     ngx_pool_t                  *pool;
-    ngx_int_t                    allocated;
-    ngx_bufs_t                   bufs;
-    ngx_buf_tag_t                tag;
+    ngx_int_t                    allocated; //已经分配的buf个数
+    ngx_bufs_t                   bufs;  //对应loc conf中设置的bufs
+    ngx_buf_tag_t                tag;   //模块标记，主要用于buf回收
 
-    ngx_output_chain_filter_pt   output_filter;
-    void                        *filter_ctx;
+    ngx_output_chain_filter_pt   output_filter; //一般是ngx_http_next_filter,也就是继续调用filter链
+    void                        *filter_ctx;    //当前filter的上下文，这里是由于upstream也会调用output_chain
 };
 
 

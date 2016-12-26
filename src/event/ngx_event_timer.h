@@ -51,7 +51,7 @@ ngx_event_del_timer(ngx_event_t *ev)
 
 //添加一个定时器事件，超时时间为timer毫秒
 //ev -- 需要操作的事件
-//timer -- 告诉定时器事件ev希望timer毫秒后超时，同时需要回调ev的handler方法
+//timer -- timer的单位是毫秒，告诉定时器事件ev希望timer毫秒后超时，同时需要回调ev的handler方法
 static ngx_inline void
 ngx_event_add_timer(ngx_event_t *ev, ngx_msec_t timer)
 {

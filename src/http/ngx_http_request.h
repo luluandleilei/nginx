@@ -526,9 +526,9 @@ struct ngx_http_request_s {
 
     unsigned                          buffered:4;
 
-    unsigned                          main_filter_need_in_memory:1;
-    unsigned                          filter_need_in_memory:1;
-    unsigned                          filter_need_temporary:1;
+    unsigned                          main_filter_need_in_memory:1; //?是否需要在内存中保存一份(使用sendfile的话，内存中没有文件的拷贝的，而我们有时需要处理文件，此时就需要设置这个标记) 
+    unsigned                          filter_need_in_memory:1;  //?是否需要在内存中保存一份(使用sendfile的话，内存中没有文件的拷贝的，而我们有时需要处理文件，此时就需要设置这个标记) 
+    unsigned                          filter_need_temporary:1;  //?是否需要在内存中重新复制一份，不管buf是在内存还是文件，这样的话，后续模块可以直接修改这块内存
     unsigned                          allow_ranges:1;
     unsigned                          subrequest_ranges:1;
     unsigned                          single_range:1;
