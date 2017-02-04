@@ -55,9 +55,6 @@
 
 
 typedef struct {
-    ngx_msec_t                       bl_time;
-    ngx_uint_t                       bl_state;
-
     ngx_uint_t                       status;
     ngx_msec_t                       response_time;
     ngx_msec_t                       connect_time;
@@ -151,7 +148,6 @@ typedef struct {
     ngx_msec_t                       connect_timeout;
     ngx_msec_t                       send_timeout;
     ngx_msec_t                       read_timeout;
-    ngx_msec_t                       timeout;
     ngx_msec_t                       next_upstream_timeout;
 
     size_t                           send_lowat;
@@ -390,9 +386,6 @@ struct ngx_http_upstream_s {
     unsigned                         request_sent:1;
     unsigned                         request_body_sent:1;
     unsigned                         header_sent:1;
-
-    NGX_COMPAT_BEGIN(1)
-    NGX_COMPAT_END
 };
 
 
@@ -408,11 +401,6 @@ typedef struct {
     ngx_uint_t  skip_empty;
 } ngx_http_upstream_param_t;
 
-
-ngx_int_t ngx_http_upstream_cookie_variable(ngx_http_request_t *r,
-    ngx_http_variable_value_t *v, uintptr_t data);
-ngx_int_t ngx_http_upstream_header_variable(ngx_http_request_t *r,
-    ngx_http_variable_value_t *v, uintptr_t data);
 
 ngx_int_t ngx_http_upstream_create(ngx_http_request_t *r);
 void ngx_http_upstream_init(ngx_http_request_t *r);
