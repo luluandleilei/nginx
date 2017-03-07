@@ -317,7 +317,8 @@ ngx_http_upstream_header_t  ngx_http_upstream_headers_in[] = {
 
 
 static ngx_command_t  ngx_http_upstream_commands[] = {
-
+    //语法: upstream name {...}
+	//upstream块定义了一个上游服务器的集群，便于方向代理中的proxy_pass使用
     { ngx_string("upstream"),
       NGX_HTTP_MAIN_CONF|NGX_CONF_BLOCK|NGX_CONF_TAKE1,
       ngx_http_upstream,
@@ -325,6 +326,20 @@ static ngx_command_t  ngx_http_upstream_commands[] = {
       0,
       NULL },
 
+    //语法: server name [weight=number | max_fails=number | fail_timeout=time | down | backpup]
+	//server配置项制订了一台上游服务器的名字，这个名字可以是域名、IP地址端口、UNIX句柄等，其后还可跟下列参数
+	//weight=number: 设置这台上游服务器转发的权重，默认为1
+	//max_fails=number: 默认为1，如果设置为0， 则表示不检查失败次数 
+	//fail_timeout=time: 默认为10秒
+	//	表示在fail_timeout时间段内转发失败max_fails次后就认为上游服务器暂时不可用，用于优化反向代理功能。
+	//	fail_timeout与向上游服务器建立连接的超时时间、读取上游服务器的响应超时时间等完全无关。
+	//down: 表示所在的上游服务器永久下线，只在使用ip_hash配置项时有效
+	//backup: 表示该上游服务器是备份服务器，只有在所有的非备份服务器都失效后，才会向该上游服务器转发请求，
+	//	在使用ip_hash配置项时无效
+	//例如: upstream backend {
+	//			server backend1.example.com weight=5
+	//			server 127.0.0.1:8080		max_fails=3 fail_timeout=30s
+	//			server unix:/tmp/backend3
     { ngx_string("server"),
       NGX_HTTP_UPS_CONF|NGX_CONF_1MORE,
       ngx_http_upstream_server,
@@ -336,6 +351,13 @@ static ngx_command_t  ngx_http_upstream_commands[] = {
 };
 
 
+//upstream 模块不产生自己的内容，而是通过请求后端服务器得到内容。Nginx 内部封装了请求并取得响应内容的整个过程，
+//所以upstream 模块只需要开发若干回调函数，完成构造请求和解析响应等具体的工作。
+
+//当客户端发来HTTP请求时，Nginx并不会立刻转发到上游服务器，而是先把用户的请求(包括HTTP包体)完整地接收到Nginx
+//所在服务器的硬盘或内存中，然后再向上游服务器发起连接，把缓存的客户端请求转发到上游服务器
+//Nginx反向代理服务器可以根据多种方案从上游服务器的集群中选择一台。它的负载均衡方案包括按IP地址做散列等
+//如果上游服务器返回内容，则不会先完整的缓存到Nginx代理服务器再向客户端转发，而是边接受边转发到客户端
 static ngx_http_module_t  ngx_http_upstream_module_ctx = {
     ngx_http_upstream_add_variables,       /* preconfiguration */
     NULL,                                  /* postconfiguration */
@@ -369,6 +391,7 @@ ngx_module_t  ngx_http_upstream_module = {
 
 static ngx_http_variable_t  ngx_http_upstream_vars[] = {
 
+    //处理请求的上游服务器地址
     { ngx_string("upstream_addr"), NULL,
       ngx_http_upstream_addr_variable, 0,
       NGX_HTTP_VAR_NOCACHEABLE, 0 },
@@ -385,6 +408,7 @@ static ngx_http_variable_t  ngx_http_upstream_vars[] = {
       ngx_http_upstream_response_time_variable, 1,
       NGX_HTTP_VAR_NOCACHEABLE, 0 },
 
+    //上游服务器的响应时间，精确到毫秒
     { ngx_string("upstream_response_time"), NULL,
       ngx_http_upstream_response_time_variable, 0,
       NGX_HTTP_VAR_NOCACHEABLE, 0 },
@@ -417,6 +441,7 @@ static ngx_http_variable_t  ngx_http_upstream_vars[] = {
 };
 
 
+//响应码对应的标志位
 static ngx_http_upstream_next_t  ngx_http_upstream_next_errors[] = {
     { 500, NGX_HTTP_UPSTREAM_FT_HTTP_500 },
     { 502, NGX_HTTP_UPSTREAM_FT_HTTP_502 },
@@ -450,6 +475,7 @@ ngx_conf_bitmask_t  ngx_http_upstream_ignore_headers_masks[] = {
 };
 
 
+//从内存池中创建ngx_http_upstream_t结构体，其中的成员还需要各个HTTP模块自行设置
 ngx_int_t
 ngx_http_upstream_create(ngx_http_request_t *r)
 {
@@ -457,6 +483,10 @@ ngx_http_upstream_create(ngx_http_request_t *r)
 
     u = r->upstream;
 
+	/*
+     * 若已经创建过ngx_http_upstream_t 且定义了cleanup成员，
+     * 则调用cleanup清理方法将原始结构体清除；
+     */
     if (u && u->cleanup) {
         r->main->count++;
         ngx_http_upstream_cleanup(r);
@@ -483,6 +513,12 @@ ngx_http_upstream_create(ngx_http_request_t *r)
 }
 
 
+/*
+启动upstream。
+在 Nginx 中调用 ngx_http_upstream_init 方法启动 upstream 机制，但是在使用 upstream 机制之前必须调用
+ngx_http_upstream_create 方法创建 ngx_http_upstream_t 结构体，因为默认情况下 ngx_http_request_t 
+结构体中的 upstream 成员是指向 NULL，该结构体的具体初始化工作还需由 HTTP 模块完成。
+*/
 void
 ngx_http_upstream_init(ngx_http_request_t *r)
 {
@@ -500,6 +536,9 @@ ngx_http_upstream_init(ngx_http_request_t *r)
     }
 #endif
 
+	//如果请求对应的客户端的连接上的读事件在定时器中，那么把这个读事件从定时器中移除
+	//因为一旦启动upstream机制，就不应该对客户端的读操作带有超时时间的处理，请求的主要
+	//触发事件将以与上游服务器的连接为主
     if (c->read->timer_set) {
         ngx_del_timer(c->read);
     }
@@ -540,9 +579,12 @@ ngx_http_upstream_init_request(ngx_http_request_t *r)
 
 #if (NGX_HTTP_CACHE)
 
-    if (u->conf->cache) {
+    ///nignx向上游服务器发出upstream请求时，会先检查是否有可用缓存。
+    if (u->conf->cache) {   //检查该location是否配置了proxy_cache/fastcgi_cache，如果是则使用缓存
         ngx_int_t  rc;
 
+        ///寻找缓存  
+        ///如果返回NGX_DECLINED就是说缓存中没有，请向后端发送请求 
         rc = ngx_http_upstream_cache(r, u);
 
         if (rc == NGX_BUSY) {
@@ -578,29 +620,44 @@ ngx_http_upstream_init_request(ngx_http_request_t *r)
 
 #endif
 
+    /* 文件缓存标志位 */ 
     u->store = u->conf->store;
 
+    //检查ngx_http_upstream_conf_t配置结构体中的ignore_client_abort标志位，
+	//如果ignore_client_abort为0(实际上还需要让store标志位为0， 请求结构体中post_action标志位为0)，
+	//就会设置Nginx与下游客户端之间TCP连接的检查方法
+	 /*
+     * 检查ngx_http_upstream_t 结构中标志位 store；
+     * 检查ngx_http_request_t 结构中标志位 post_action；
+     * 检查ngx_http_upstream_conf_t 结构中标志位 ignore_client_abort；
+     * 若上面这些标志位为1，则表示需要检查Nginx与下游(即客户端)之间的TCP连接是否断开；
+     */
     if (!u->store && !r->post_action && !u->conf->ignore_client_abort) {
         r->read_event_handler = ngx_http_upstream_rd_check_broken_connection;
         r->write_event_handler = ngx_http_upstream_wr_check_broken_connection;
     }
 
+    /* 把当前请求包体结构保存在ngx_http_upstream_t 结构的request_bufs链表缓冲区中 */
     if (r->request_body) {
         u->request_bufs = r->request_body->bufs;
     }
 
+    //调用请求中ngx_http_upstream_t结构体里由某个HTTP模块实现的create_request方法，构造发往上游服务器的请求
     if (u->create_request(r) != NGX_OK) {
         ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
         return;
     }
 
+    /*??? 获取ngx_http_upstream_t结构中主动连接结构peer的local本地地址信息 */  
     if (ngx_http_upstream_set_local(r, u, u->conf->local) != NGX_OK) {
         ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
         return;
     }
 
+    /* 获取ngx_http_core_module模块的loc级别的配置项结构 */  
     clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
 
+    /* 初始化ngx_http_upstream_t结构中成员output向下游发送响应的方式 */
     u->output.alignment = clcf->directio_alignment;
     u->output.pool = r->pool;
     u->output.bufs.num = 1;
@@ -613,6 +670,7 @@ ngx_http_upstream_init_request(ngx_http_request_t *r)
 
     u->writer.pool = r->pool;
 
+    /* 添加用于表示上游响应的状态，例如：错误编码、包体长度等 */  
     if (r->upstream_states == NULL) {
 
         r->upstream_states = ngx_array_create(r->pool, 1,
@@ -634,6 +692,8 @@ ngx_http_upstream_init_request(ngx_http_request_t *r)
         ngx_memzero(u->state, sizeof(ngx_http_upstream_state_t));
     }
 
+    //调用 ngx_http_cleanup_add 方法向原始请求的 cleanup 链表尾端添加一个回调 handler 方法，
+	//该回调方法设置为ngx_http_upstream_cleanup，若当前请求结束时会调用该方法做一些清理工作
     cln = ngx_http_cleanup_add(r, 0);
     if (cln == NULL) {
         ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
@@ -644,21 +704,31 @@ ngx_http_upstream_init_request(ngx_http_request_t *r)
     cln->data = r;
     u->cleanup = &cln->handler;
 
-    if (u->resolved == NULL) {
+    //不需要解析地址的情况，包括配置upstream模式下的静态server，静态proxy_pass指令，
+	//即初始化过程中已经能将地址解析好的情况（静态IP后端或者可通过gethostbyname获取到地址的域名后端）
+    if (u->resolved == NULL) {  /* 若没有实现u->resolved标志位，则定义上游服务器的配置 */ 
 
         uscf = u->conf->upstream;
 
-    } else {
+    } else {    /* 若实现了u->resolved标志位，则解析主机域名，指定上游服务器的地址； */
 
 #if (NGX_HTTP_SSL)
         u->ssl_name = u->resolved->host;
 #endif
 
+       /*
+         * 若已经指定了上游服务器地址，则不需要解析，
+         * 直接调用ngx_http_upstream_connection方法向上游服务器发起连接；
+         * 并return从当前函数返回；
+         */
+
+        /*需要解析地址，但socket地址还未解析*/
         host = &u->resolved->host;
 
         umcf = ngx_http_get_module_main_conf(r, ngx_http_upstream_module);
 
-        uscfp = umcf->upstreams.elts;
+        //先找当前访问的host是否在配置的upstream数组中
+        uscfp = umcf->upstreams.elts;   
 
         for (i = 0; i < umcf->upstreams.nelts; i++) {
 
@@ -673,6 +743,7 @@ ngx_http_upstream_init_request(ngx_http_request_t *r)
             }
         }
 
+        //需要解析地址，并且已经解析完毕的情况（已经有socket地址），直接连接后端
         if (u->resolved->sockaddr) {
 
             if (u->resolved->port == 0
@@ -698,6 +769,8 @@ ngx_http_upstream_init_request(ngx_http_request_t *r)
             return;
         }
 
+    	//当访问的地址需要进行域名解析的情况下（比如proxy_pass中存在变量，变量的值为一个域名，任何静态域名均会在初始化时候被解析），
+		//是无法使用keepalive连接的，请看nginx在解析域名成功后是怎么处理的（即ngx_http_upstream_init_request函数中设置ctx->handler = ngx_http_upstream_resolve_handler）
         if (u->resolved->port == 0) {
             ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
                           "no port in upstream \"%V\"", host);
@@ -708,6 +781,7 @@ ngx_http_upstream_init_request(ngx_http_request_t *r)
 
         temp.name = *host;
 
+        // 开始进行域名解析
         ctx = ngx_resolve_start(clcf->resolver, &temp);
         if (ctx == NULL) {
             ngx_http_upstream_finalize_request(r, u,
@@ -724,12 +798,13 @@ ngx_http_upstream_init_request(ngx_http_request_t *r)
         }
 
         ctx->name = *host;
-        ctx->handler = ngx_http_upstream_resolve_handler;
+        ctx->handler = ngx_http_upstream_resolve_handler;   // 设置DNS解析钩子，解析DNS成功后会执行
         ctx->data = r;
         ctx->timeout = clcf->resolver_timeout;
 
         u->resolved->ctx = ctx;
 
+        // 开始处理DNS解析域名
         if (ngx_resolve_name(ctx) != NGX_OK) {
             u->resolved->ctx = NULL;
             ngx_http_upstream_finalize_request(r, u,
@@ -740,7 +815,7 @@ ngx_http_upstream_init_request(ngx_http_request_t *r)
         return;
     }
 
-found:
+found:  //只有不需要解析地址或者能找到upstream的情况才会走到这里
 
     if (uscf == NULL) {
         ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0,
@@ -769,7 +844,7 @@ found:
     {
         u->peer.tries = u->conf->next_upstream_tries;
     }
-
+    //调用方法ngx_http_upstream_connect向上游服务器发起连接
     ngx_http_upstream_connect(r, u);
 }
 
@@ -785,12 +860,14 @@ ngx_http_upstream_cache(ngx_http_request_t *r, ngx_http_upstream_t *u)
 
     c = r->cache;
 
-    if (c == NULL) {
+    if (c == NULL) {     //该请求第一个对缓存进行访问?
 
+        //检查请求方式是否满足缓存方式
         if (!(r->method & u->conf->cache_methods)) {
             return NGX_DECLINED;
         }
 
+        //获取对应的。。。
         rc = ngx_http_upstream_cache_get(r, u, &cache);
 
         if (rc != NGX_OK) {
@@ -805,12 +882,14 @@ ngx_http_upstream_cache(ngx_http_request_t *r, ngx_http_upstream_t *u)
             return NGX_ERROR;
         }
 
-        if (u->create_key(r) != NGX_OK) {
+        //获取对应的key值
+        if (u->create_key(r) != NGX_OK) {   //ngx_http_proxy_create_key 将 `proxy_cache_key` 配置指令定义的缓存 key 根据请求信息进行取值
             return NGX_ERROR;
         }
 
         /* TODO: add keys */
 
+        //计算key值的crc32和MD5值
         ngx_http_file_cache_create_key(r);
 
         if (r->cache->header_start + 256 >= u->conf->buffer_size) {
@@ -832,6 +911,7 @@ ngx_http_upstream_cache(ngx_http_request_t *r, ngx_http_upstream_t *u)
         c->min_uses = u->conf->cache_min_uses;
         c->file_cache = cache;
 
+        //根据配置文件中 (proxy_cache_bypass) 缓存绕过条件和请求信息，判断是否应该继续尝试使用缓存数据响应该请求
         switch (ngx_http_test_predicates(r, u->conf->cache_bypass)) {
 
         case NGX_ERROR:
@@ -852,6 +932,7 @@ ngx_http_upstream_cache(ngx_http_request_t *r, ngx_http_upstream_t *u)
         u->cache_status = NGX_HTTP_CACHE_MISS;
     }
 
+    //查找是否有对应的有效缓存数据
     rc = ngx_http_file_cache_open(r);
 
     ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
@@ -934,6 +1015,7 @@ ngx_http_upstream_cache(ngx_http_request_t *r, ngx_http_upstream_t *u)
 }
 
 
+///获取存储cache key于对应文件路径的散列表所在的。。。
 static ngx_int_t
 ngx_http_upstream_cache_get(ngx_http_request_t *r, ngx_http_upstream_t *u,
     ngx_http_file_cache_t **cache)
@@ -1131,6 +1213,7 @@ ngx_http_upstream_resolve_handler(ngx_resolver_ctx_t *ctx)
     }
 #endif
 
+    // 创建轮询后端，设置获取peer和释放peer的钩子等（与ngx_http_upstream_init_round_robin_peer的功能有点类似）
     if (ngx_http_upstream_create_round_robin_peer(r, ur) != NGX_OK) {
         ngx_http_upstream_finalize_request(r, u,
                                            NGX_HTTP_INTERNAL_SERVER_ERROR);
@@ -1163,10 +1246,12 @@ ngx_http_upstream_handler(ngx_event_t *ev)
     ngx_http_request_t   *r;
     ngx_http_upstream_t  *u;
 
+    //由事件的data成员取得ngx_connection_t连接。注意，这个连接并不是Nginx与客户端的连接，而是Nginx与上游服务器间的连接
     c = ev->data;
     r = c->data;
 
     u = r->upstream;
+    //注意，ngx_http_request_t结构体中的这个connection连接是客户端与Nginx间的连接
     c = r->connection;
 
     ngx_http_set_log_request(c->log, r);
@@ -1199,6 +1284,7 @@ ngx_http_upstream_wr_check_broken_connection(ngx_http_request_t *r)
 }
 
 
+//检查nginx与下游客户端之间TCP连接是否正常，如果出现错误，就会立即终止连接
 static void
 ngx_http_upstream_check_broken_connection(ngx_http_request_t *r,
     ngx_event_t *ev)
@@ -1217,7 +1303,7 @@ ngx_http_upstream_check_broken_connection(ngx_http_request_t *r,
     c = r->connection;
     u = r->upstream;
 
-    if (c->error) {
+    if (c->error) { //如果连接已经出现错误。
         if ((ngx_event_flags & NGX_USE_LEVEL_EVENT) && ev->active) {
 
             event = ev->write ? NGX_WRITE_EVENT : NGX_READ_EVENT;
@@ -1341,10 +1427,13 @@ ngx_http_upstream_check_broken_connection(ngx_http_request_t *r,
     ngx_log_debug1(NGX_LOG_DEBUG_HTTP, ev->log, err,
                    "http upstream recv(): %d", n);
 
+    //n = 0时连接断开，为什么还直接返回
     if (ev->write && (n >= 0 || err == NGX_EAGAIN)) {
         return;
     }
 
+    /*如果是水平触发，且事件在事件驱动机制中，则将其移除*/
+	/*防止其重复不停的触发事件*/
     if ((ngx_event_flags & NGX_USE_LEVEL_EVENT) && ev->active) {
 
         event = ev->write ? NGX_WRITE_EVENT : NGX_READ_EVENT;
@@ -1386,6 +1475,7 @@ ngx_http_upstream_check_broken_connection(ngx_http_request_t *r,
     ngx_log_error(NGX_LOG_INFO, ev->log, err,
                   "client prematurely closed connection");
 
+    //如果有cache，并且后端的upstream还在处理，则此时继续处理upstream，忽略对端的错误.
     if (u->peer.connection == NULL) {
         ngx_http_upstream_finalize_request(r, u,
                                            NGX_HTTP_CLIENT_CLOSED_REQUEST);

@@ -284,6 +284,9 @@ ngx_log_stderr(ngx_err_t err, const char *fmt, ...)
 }
 
 
+//将err及其对应的字符串以'(数字: 描述)'的格式写入指定的空间中
+//buf -- 空间的起始地址
+//last -- 空间的结束地址
 u_char *
 ngx_log_errno(u_char *buf, u_char *last, ngx_err_t err)
 {

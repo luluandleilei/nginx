@@ -259,7 +259,19 @@ ngx_http_file_cache_create_key(ngx_http_request_t *r)
     ngx_memcpy(c->main, c->key, NGX_HTTP_CACHE_KEY_LEN);
 }
 
-
+///缓存文件定位，缓存文件打开和校验等操作
+//返回值:
+//  NGX_OK -- 缓存命中。设置 cache_status 为 NGX_HTTP_CACHE_HIT 然后向客户端发送缓存内容
+//  NGX_HTTP_CACHE_STALE -- 缓存内容过期，当前请求需要向后端请求新的响应数据。设置 cache_status 为 NGX_HTTP_CACHE_EXPIRED，并返回 NGX_DECLINED 以继续村里请求(`r->cached = 0; c->valid_sec = 0`)
+//  NGX_HTTP_CACHE_UPDATING -- 缓存内容过期，同时已有同样使用该缓存节点的其它请求正在请求新的响应数据。
+//                              如果 fastcgi_cache_use_stale 启用了 "updating"，设置 `cache_status` 为`NGX_HTTP_CACHE_UPDATING`，
+//                              然后向客户端发送过期缓存内容。否则，将返回值重设为 `NGX_HTTP_CACHE_STALE`。
+//  NGX_HTTP_CACHE_SCARCE -- 因缓存节点被查询次数还未达 min_uses，对此请求禁用缓存机制。继续请求处理，但是不再缓存其响应数据 (`u->cacheable = 0`)
+//  NGX_DECLINED -- 缓存内容因为不存在 (`c->exists == 0`)、缓存内容未通过校验、或者当前请求正在更新缓存等原因，暂时无法使用缓存。继续请求处理，并尝试对其响应数据进行缓存。
+//  NGX_AGAIN -- 缓存内容过期，并且当前缓存节点正在被其它请求更新，或者 还未能从缓存文件中读到足够的数据 (aio 模块下)。返回 `NGX_BUSY`，Nginx 会再次尝试读取缓存。
+//  NGX_ERROR -- 内存相关、文件系统等系统错误。返回 `NGX_ERROR`，Nginx 会调用 `ngx_http_finalize_request` 终止此请求。
+//  NGX_HTTP_SPECIAL_RESPONSE -- 打开 `fastcgi_intercept_errors` 配置情况下，直接返回缓存的错误码。
+//                            --  设置 `cache_status` 为 `NGX_HTTP_CACHE_HIT` 并返回错误码。
 ngx_int_t
 ngx_http_file_cache_open(ngx_http_request_t *r)
 {
