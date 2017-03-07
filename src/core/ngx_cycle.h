@@ -57,6 +57,7 @@ struct ngx_cycle_s {
     ngx_uint_t                modules_used;    /* unsigned  modules_used:1; */
 
     ngx_queue_t               reusable_connections_queue;   //ngx_connection_t类型的双向链表容器，表示可重复使用的连接的队列
+    ngx_uint_t                reusable_connections_n;
 
     ngx_array_t               listening;    //ngx_listening_t类型的动态数组，表示监听端口及相关参数
     ngx_array_t               paths;    //ngx_path_t*类型的动态数组，保存着Nginx所有要操作的所有目录。如果有目录不存在，而创建目录失败会导致Nginx启动失败。

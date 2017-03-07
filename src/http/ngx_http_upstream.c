@@ -162,6 +162,10 @@ static ngx_int_t ngx_http_upstream_response_time_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
 static ngx_int_t ngx_http_upstream_response_length_variable(
     ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data);
+static ngx_int_t ngx_http_upstream_header_variable(ngx_http_request_t *r,
+    ngx_http_variable_value_t *v, uintptr_t data);
+static ngx_int_t ngx_http_upstream_cookie_variable(ngx_http_request_t *r,
+    ngx_http_variable_value_t *v, uintptr_t data);
 
 static char *ngx_http_upstream(ngx_conf_t *cf, ngx_command_t *cmd, void *dummy);
 static char *ngx_http_upstream_server(ngx_conf_t *cf, ngx_command_t *cmd,
@@ -436,6 +440,12 @@ static ngx_http_variable_t  ngx_http_upstream_vars[] = {
       NGX_HTTP_VAR_NOCACHEABLE|NGX_HTTP_VAR_NOHASH, 0 },
 
 #endif
+
+    { ngx_string("upstream_http_"), NULL, ngx_http_upstream_header_variable,
+      0, NGX_HTTP_VAR_NOCACHEABLE|NGX_HTTP_VAR_PREFIX, 0 },
+
+    { ngx_string("upstream_cookie_"), NULL, ngx_http_upstream_cookie_variable,
+      0, NGX_HTTP_VAR_NOCACHEABLE|NGX_HTTP_VAR_PREFIX, 0 },
 
     { ngx_null_string, NULL, NULL, 0, 0, 0 }
 };
@@ -3938,9 +3948,24 @@ ngx_http_upstream_process_request(ngx_http_request_t *r,
     p = u->pipe;
 
 #if (NGX_THREADS)
+
+    if (p->writing && !p->aio) {
+
+        /*
+         * make sure to call ngx_event_pipe()
+         * if there is an incomplete aio write
+         */
+
+        if (ngx_event_pipe(p, 1) == NGX_ABORT) {
+            ngx_http_upstream_finalize_request(r, u, NGX_ERROR);
+            return;
+        }
+    }
+
     if (p->writing) {
         return;
     }
+
 #endif
 
     if (u->peer.connection) {
@@ -5466,7 +5491,7 @@ ngx_http_upstream_response_length_variable(ngx_http_request_t *r,
 }
 
 
-ngx_int_t
+static ngx_int_t
 ngx_http_upstream_header_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data)
 {
@@ -5481,7 +5506,7 @@ ngx_http_upstream_header_variable(ngx_http_request_t *r,
 }
 
 
-ngx_int_t
+static ngx_int_t
 ngx_http_upstream_cookie_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data)
 {
